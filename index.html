@@ -1,4 +1,77 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>html,body{margin:0}</style></head><body><title>Darwix Page Studio</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>html,body{margin:0}</style></head><body><script>/* Standalone host shim: gives the app the same window.claude surface using the visitor's own Anthropic API key. */
+(function () {
+  if (window.claude && window.claude.use) return;
+  var KEY = 'dxps_api_key', DB = 'dxps_db';
+  function ls(k, v) { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} return null; }
+  var mem = {}; try { mem = JSON.parse(ls(DB) || '{}'); } catch (e) {}
+  function persist() { ls(DB, JSON.stringify(mem)); }
+  var clone = function (o) { return JSON.parse(JSON.stringify(o)); };
+  function docRef(path) { return { id: path.split('/').pop(), path: path,
+    get: async function () { return { id: path.split('/').pop(), exists: Object.prototype.hasOwnProperty.call(mem, path), data: function () { return mem[path]; } }; },
+    set: async function (d) { mem[path] = clone(d); persist(); }, update: async function (d) { mem[path] = Object.assign(mem[path] || {}, clone(d)); persist(); }, delete: async function () { delete mem[path]; persist(); } }; }
+  function coll(path) { var q = { _lim: 999, _ord: null, orderBy: function (f, d) { this._ord = [f, d]; return this; }, limit: function (n) { this._lim = n; return this; },
+    get: async function () { var docs = Object.keys(mem).filter(function (k) { return k.indexOf(path + '/') === 0 && k.split('/').length === path.split('/').length + 1; }).map(function (k) { return { id: k.split('/').pop(), exists: true, data: function () { return mem[k]; } }; });
+      if (q._ord) { var f = q._ord[0], d = q._ord[1]; docs.sort(function (a, b) { return ((a.data()[f] || 0) - (b.data()[f] || 0)) * (d === 'desc' ? -1 : 1); }); }
+      return { docs: docs.slice(0, q._lim), size: docs.length, empty: !docs.length }; }, doc: function (id) { return docRef(path + '/' + id); } }; return q; }
+  var db = { doc: docRef, collection: coll };
+
+  /* ---- key dialog ---- */
+  function askKey() {
+    return new Promise(function (res) {
+      var w = document.createElement('div'); w.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(10,11,25,.6);display:flex;align-items:center;justify-content:center;padding:16px';
+      w.innerHTML = '<div role="dialog" aria-label="Connect Claude" style="background:var(--panel,#fff);color:var(--fg,#2B2B2E);border:1px solid var(--line,#E6E7F0);border-radius:16px;width:min(480px,100%);padding:22px;box-shadow:0 30px 80px rgba(0,0,0,.4);font:14px/1.5 Manrope,system-ui,sans-serif">' +
+        '<h3 style="margin:0 0 6px;font-size:18px">Connect Claude</h3><p style="margin:0 0 12px;color:var(--mut,#686868)">Paste your Anthropic API key to generate. It is stored only in this browser and sent only to api.anthropic.com. Get one at console.anthropic.com.</p>' +
+        '<input id="dxk" type="password" autocomplete="off" placeholder="sk-ant-..." style="width:100%;box-sizing:border-box;height:44px;border:1px solid var(--line,#E6E7F0);background:var(--panel2,#F4F5F9);color:inherit;border-radius:10px;padding:0 14px;font:inherit">' +
+        '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap"><button id="dxk-x" class="btn">Cancel</button>' + (ls(KEY) ? '<button id="dxk-r" class="btn danger">Remove key</button>' : '') + '<button id="dxk-s" class="btn pri">Save key</button></div></div>';
+      document.body.appendChild(w); var inp = w.querySelector('#dxk'); inp.focus();
+      function done(v) { w.remove(); res(v); }
+      w.querySelector('#dxk-x').onclick = function () { done(null); };
+      var r = w.querySelector('#dxk-r'); if (r) r.onclick = function () { ls(KEY, null); done(null); badge(); };
+      w.querySelector('#dxk-s').onclick = function () { var v = inp.value.trim(); if (v) { ls(KEY, v); badge(); } done(v || null); };
+      inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') w.querySelector('#dxk-s').click(); if (e.key === 'Escape') done(null); });
+    });
+  }
+  function badge() {
+    var b = document.getElementById('dxk-badge');
+    if (!b) { b = document.createElement('button'); b.id = 'dxk-badge'; b.className = 'lnk'; b.style.cssText = 'position:fixed;right:16px;bottom:max(16px,env(safe-area-inset-bottom,0px));z-index:90;background:var(--panel,#fff);border:1px solid var(--line,#E6E7F0);border-radius:99px;padding:8px 14px;box-shadow:0 4px 14px rgba(14,19,48,.12);font-size:12.5px'; b.onclick = askKey; document.body.appendChild(b); }
+    b.textContent = ls(KEY) ? 'Claude key connected' : 'Connect Claude to generate';
+  }
+  document.addEventListener('DOMContentLoaded', badge);
+
+  var MODEL = { quick: 'claude-haiku-5-5', default: 'claude-sonnet-5-5', complex: 'claude-opus-5-5' };
+  function b64(blob) { return new Promise(function (res, rej) { var r = new FileReader(); r.onload = function () { res(String(r.result).split(',')[1]); }; r.onerror = rej; r.readAsDataURL(blob); }); }
+  async function sample(input, opts) {
+    opts = opts || {};
+    var key = ls(KEY); if (!key) key = await askKey(); if (!key) throw { code: 'not_granted', message: 'Add your Anthropic API key to generate.' };
+    var msgs = typeof input === 'string' ? [{ role: 'user', content: input }] : input.map(function (m) { return { role: m.role, content: m.content }; });
+    if (opts.images && opts.images.length) {
+      var blocks = []; for (var i = 0; i < opts.images.length; i++) { var bl = opts.images[i]; blocks.push({ type: 'image', source: { type: 'base64', media_type: bl.type || 'image/jpeg', data: await b64(bl) } }); }
+      var last = msgs[msgs.length - 1]; last.content = blocks.concat([{ type: 'text', text: last.content }]);
+    }
+    var tier = opts.modelTier || 'default';
+    var resp; try { resp = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', signal: opts.signal,
+      headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: opts.model || MODEL[tier] || MODEL.default, max_tokens: tier === 'quick' ? 8000 : 32000, stream: true, messages: msgs }) }); } catch (e) { if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'Cancelled.' }; throw { code: 'error', message: 'Could not reach Claude. Check your connection.' }; }
+    if (!resp.ok) { var t = ''; try { t = (await resp.json()).error.message; } catch (e) {} if (resp.status === 401) ls(KEY, null), badge(); throw { code: resp.status === 401 ? 'not_granted' : resp.status === 429 ? 'rate_limited' : 'error', message: resp.status === 401 ? 'The API key was rejected. Check it and try again.' : (t || 'Request failed (' + resp.status + ').') }; }
+    var rd = resp.body.getReader(), dec = new TextDecoder(), buf = '', text = '', stop = '';
+    for (;;) {
+      var c = await rd.read(); if (c.done) break; buf += dec.decode(c.value, { stream: true });
+      var parts = buf.split('\n\n'); buf = parts.pop();
+      parts.forEach(function (p) { var m = p.match(/^data: (.*)$/m); if (!m) return; var j; try { j = JSON.parse(m[1]); } catch (e) { return; }
+        if (j.type === 'content_block_delta' && j.delta && j.delta.text) { text += j.delta.text; if (opts.onText) opts.onText({ text: text, delta: j.delta.text }); }
+        if (j.type === 'message_delta' && j.delta && j.delta.stop_reason) stop = j.delta.stop_reason;
+        if (j.type === 'error') throw { code: 'error', message: (j.error && j.error.message) || 'Claude returned an error.' }; });
+    }
+    return { text: text, truncated: stop === 'max_tokens' };
+  }
+  sample.limits = async function () { return { maxPromptBytes: 3000000, images: { maxCount: 8, maxInputBytes: 5000000, mediaTypes: ['image/jpeg', 'image/png', 'image/webp'] } }; };
+  sample.json = async function (input, opts) { var r = await sample(input, opts); var m = r.text.match(/\{[\s\S]*\}/); try { return JSON.parse(m[0]); } catch (e) { throw { code: 'invalid_json', text: r.text }; } };
+  var downloads = { save: async function (x) { var u = URL.createObjectURL(new Blob([x.data], { type: /\.html?$/.test(x.filename) ? 'text/html' : 'text/markdown' })); var a = document.createElement('a'); a.href = u; a.download = x.filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000); return { status: 'saved' }; } };
+  var user = { can: function () { return true; }, isOwner: function () { return true; } };
+  window.claude = { use: async function (n) { return { sample: sample, db: db, user: user, downloads: downloads }[n] || null; } };
+  window.__DXHOST__ = true;
+})();
+</script><title>Darwix Page Studio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400&display=swap">
 <style>:root{--bg:#FAFAFB;--panel:#FFFFFF;--panel2:#F4F5F9;--fg:#2B2B2E;--ink:#111111;--lab:#515153;--mut:#686868;--faint:#949395;--line:#E6E7F0;--dash:#C5CAD8;--stage:#EEEFF5;--acc:#565ADD;--acc-h:#4A4ECF;--acc-p:#4344B8;--tint:#EEEFFF;--tint-b:#DCDDFB;--ok:#12803A;--ok-bg:#E6F6EC;--warn:#9A6700;--warn-bg:#FFF4D6;--err:#B42318;--err-bg:#FDEAEA;--navy:#1B1F3B;--shadow:0 1px 2px rgba(14,19,48,.04);--lift:0 12px 32px rgba(14,19,48,.12);--code:#F4F5F9;--r:14px}
