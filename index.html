@@ -69,6 +69,10 @@
   var downloads = { save: async function (x) { var u = URL.createObjectURL(new Blob([x.data], { type: /\.html?$/.test(x.filename) ? 'text/html' : 'text/markdown' })); var a = document.createElement('a'); a.href = u; a.download = x.filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000); return { status: 'saved' }; } };
   var user = { can: function () { return true; }, isOwner: function () { return true; } };
   window.claude = { use: async function (n) { return { sample: sample, db: db, user: user, downloads: downloads }[n] || null; } };
+
+  var CLAUDE_URL = 'https://claude.ai/artifact/SqS9yMKwf5t2sHNucV4mqs';
+  (function addLink() { var c = document.querySelector('.cta'); if (!c) { setTimeout(addLink, 150); return; } if (document.getElementById('dx-inclaude')) return;
+    var a = document.createElement('a'); a.id = 'dx-inclaude'; a.href = CLAUDE_URL; a.target = '_blank'; a.rel = 'noopener'; a.className = 'lnk'; a.textContent = 'Or generate in Claude \u2014 no API key needed \u2197'; a.style.fontSize = '13px'; c.appendChild(a); })();
   window.__DXHOST__ = true;
 })();
 </script><title>Darwix Page Studio</title>
