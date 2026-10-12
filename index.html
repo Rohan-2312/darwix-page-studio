@@ -79,8 +79,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400&display=swap">
 <style>:root{--bg:#FAFAFB;--panel:#FFFFFF;--panel2:#F4F5F9;--fg:#2B2B2E;--ink:#111111;--lab:#515153;--mut:#686868;--faint:#949395;--line:#E6E7F0;--dash:#C5CAD8;--stage:#EEEFF5;--acc:#565ADD;--acc-h:#4A4ECF;--acc-p:#4344B8;--tint:#EEEFFF;--tint-b:#DCDDFB;--ok:#12803A;--ok-bg:#E6F6EC;--warn:#9A6700;--warn-bg:#FFF4D6;--err:#B42318;--err-bg:#FDEAEA;--navy:#1B1F3B;--shadow:0 1px 2px rgba(14,19,48,.04);--lift:0 12px 32px rgba(14,19,48,.12);--code:#F4F5F9;--r:14px}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0F1020;--panel:#171829;--panel2:#1E2035;--fg:#ECEDFA;--ink:#F6F6FF;--lab:#B9BBD3;--mut:#A3A6C4;--faint:#7D809D;--line:#2B2D47;--dash:#3A3D5E;--stage:#12132A;--acc:#8A8DF5;--acc-h:#9B9EFA;--acc-p:#7477E8;--tint:#242650;--tint-b:#34376F;--ok:#4ADE80;--ok-bg:#12301F;--warn:#F5C451;--warn-bg:#3A2E10;--err:#FF7B7B;--err-bg:#3A1717;--navy:#0B0C1B;--shadow:0 1px 2px rgba(0,0,0,.4);--lift:0 12px 32px rgba(0,0,0,.45);--code:#1B1D33;color-scheme:dark}}
-:root[data-theme="dark"]{--bg:#0F1020;--panel:#171829;--panel2:#1E2035;--fg:#ECEDFA;--ink:#F6F6FF;--lab:#B9BBD3;--mut:#A3A6C4;--faint:#7D809D;--line:#2B2D47;--dash:#3A3D5E;--stage:#12132A;--acc:#8A8DF5;--acc-h:#9B9EFA;--acc-p:#7477E8;--tint:#242650;--tint-b:#34376F;--ok:#4ADE80;--ok-bg:#12301F;--warn:#F5C451;--warn-bg:#3A2E10;--err:#FF7B7B;--err-bg:#3A1717;--navy:#0B0C1B;--shadow:0 1px 2px rgba(0,0,0,.4);--lift:0 12px 32px rgba(0,0,0,.45);--code:#1B1D33;color-scheme:dark}
 *{box-sizing:border-box}
 html,body{height:auto}
 body{background:var(--bg);color:var(--fg);font:400 14px/1.55 "Manrope",system-ui,-apple-system,"Segoe UI",sans-serif;padding:0;-webkit-font-smoothing:antialiased}
@@ -417,6 +415,7 @@ h1,h2,h3,h4,p{margin:0}
 .fc-a .btn.sm{padding:0 12px;font-size:12.5px}
 .fcard.ds{grid-column:1/-1}
 @media (max-width:560px){.fic{display:none}}
+:root{color-scheme:light}
 </style>
 <div class="app" id="app"></div>
 <div class="modal" id="m-view" hidden><div class="mbox"><div class="mh"><h3></h3><button class="btn sm" data-act="close">Close</button></div><div class="mb"></div></div></div>
@@ -1574,6 +1573,21 @@ if (typeof module !== 'undefined' && module.exports) module.exports = api; else 
     var on = function (x) { return x.enabled !== false; };
     return { structure: S.lib.structure.filter(on).length, refs: S.lib.refs.filter(on).length, design: S.lib.design.filter(on).length ? 1 : 0, web: S.lib.web.filter(on).length };
   }
+  async function allowClaude() {
+    try {
+      var P = await cap('permissions');
+      if (P) { var st = await P.state(); if (st && st.sample === 'denied') { try { await P.manage(); } catch (e) { toast('Open this page\u2019s Permissions menu and switch Claude on.', 5000); } } else { await P.request(); } }
+    } catch (e) {}
+    await initCaps(); renderStart();
+    if (!S.caps.sample) {
+      var info = [];
+      try { info.push('framed=' + (window.top !== window)); } catch (e) { info.push('framed=yes'); }
+      try { info.push('host=' + location.host); } catch (e) {}
+      try { var P2 = await cap('permissions'); info.push('permissions=' + (P2 ? JSON.stringify(await P2.state()) : 'null')); } catch (e) { info.push('permissions=error ' + (e && (e.code || e.message))); }
+      info.push('db=' + !!S.caps.db, 'user=' + !!S.caps.user, 'downloads=' + !!S.caps.downloads);
+      var d = $('#banner'); if (d) { d.hidden = false; var el = d.querySelector('.diag') || d.appendChild(document.createElement('div')); el.className = 'diag'; el.style.cssText = 'margin-top:8px;font:12px/1.5 monospace;user-select:all;word-break:break-all'; el.textContent = 'Diagnostic: ' + info.join(' | '); }
+    }
+  }
   function syncGen() {
     var n = ($('#pname') && $('#pname').value || '').trim(), b = $('#gen-btn'); if (!b) return;
     b.disabled = S.busy || !n; var h = $('#gen-hint'); if (h) h.textContent = S.busy ? 'Working on it…' : !n ? 'Enter a product name to continue.' : (S.caps.sample ? 'Ready · ' + (S.lib.structure.length + S.lib.refs.length + S.lib.design.length + S.lib.web.length) + ' sources attached' : 'Open this page inside Claude to generate.');
@@ -1583,7 +1597,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = api; else 
   function renderStart() {
     var c = srcCounts(), samp = !!S.caps.sample;
     $('#banner').hidden = samp;
-    $('#banner').textContent = window.claude ? 'Claude is not available in this view, so generation is off. You can still paste a PRD and build its page below.' : 'Open this page inside Claude to generate. You can still paste a PRD and build its page below.';
+    $('#banner').innerHTML = window.claude && !window.__DXHOST__ ? 'Claude access is off for this page in your view. Allow it to generate with your own Claude account. <button class="lnk" data-act="allow">Allow Claude</button> You can still paste a PRD and build its page below.' : 'Open this page inside Claude to generate. You can still paste a PRD and build its page below.';
     var act = function (x) { return x.enabled !== false; };
     var dsel = S.lib.design.filter(act).filter(function (d) { return d.id === S.activeDesign; })[0] || S.lib.design.filter(act)[0];
     var tile = function (sub, t, sb, ok) { return '<button class="stile' + (ok ? '' : ' off') + '" data-act="goto" data-sub="' + sub + '"><span class="sic">' + icon('doc') + '</span><span class="stx"><b>' + t + '</b><small>' + esc(sb) + '</small></span>' + (ok ? '<span class="sok">' + icon('cc') + '</span>' : '<span class="sno">None</span>') + '</button>'; };
@@ -1631,7 +1645,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = api; else 
   async function generate() {
     var product = $('#pname').value.trim();
     if (!product) { $('#pname').focus(); toast('Enter a product name first.'); return; }
-    if (!S.caps.sample) { toast('Open this page inside Claude to generate.'); return; }
+    if (!S.caps.sample) { if (window.claude && !window.__DXHOST__) { await allowClaude(); } if (!S.caps.sample) { toast('Claude access is off. Use "Allow Claude" above, or the page\u2019s Permissions menu.', 5000); return; } }
     S.name = product; S.busy = true; S.abort = new AbortController();
     var run = S.run = { product: product, plan: null, prd: '', t0: Date.now() };
     renderRun(); showGen('run'); window.scrollTo(0, 0);
@@ -1918,6 +1932,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = api; else 
   document.addEventListener('click', async function (e) {
     var b = e.target.closest('[data-act]'); if (!b) return;
     var act = b.dataset.act, id = b.dataset.id, k = S.sub;
+    if (act === 'allow') { await allowClaude(); if (!S.caps.sample) toast('Claude access is still off. Open this page\u2019s Permissions menu and allow it.', 5000); else toast('Claude is on. You can generate now.'); return; }
     if (act === 'goto') { S.sub = b.dataset.sub; setTab('customize'); return; }
     if (act === 'rmbrief') { S.brief.files.splice(+b.dataset.i, 1); renderStart(); return; }
     if (act === 'cancel') { if (S.abort) S.abort.abort(); return; }
@@ -2024,7 +2039,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = api; else 
     initLib(); mount();
     await initCaps(); await loadPersisted();
     var h = (location.hash || '').replace('#', ''); setTab(h === 'customize' ? 'customize' : 'generate'); showGen('start');
-    if (!S.persist) { /* session only */ }
+    if (!S.caps.sample && window.claude && !window.__DXHOST__) setTimeout(async function () { if (!S.caps.sample) { await initCaps(); if (S.caps.sample) renderStart(); } }, 3000);
     window.__DXAPP__ = { S: S, generate: generate, addFiles: addFiles, sources: sources, pdfText: pdfText };
   }
   boot();
